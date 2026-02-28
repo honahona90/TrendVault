@@ -10,10 +10,15 @@ const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
 
 // 日付フォーマット
 function getDate() {
+  // 日本時間（JST = UTC+9）で日付を取得
   const d = new Date();
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
+  const jstOffset = 9 * 60; // 9時間 = 540分
+  const jstTime = new Date(d.getTime() + jstOffset * 60 * 1000);
+  
+  const year = jstTime.getUTCFullYear();
+  const month = String(jstTime.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(jstTime.getUTCDate()).padStart(2, '0');
+  
   return { 
     yyyymmdd: `${year}${month}${day}`, 
     display: `${year}-${month}-${day}` 
