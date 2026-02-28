@@ -1,0 +1,326 @@
+const axios = require('axios');
+const cheerio = require('cheerio');
+const fs = require('fs');
+const path = require('path');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
+
+// Gemini API初期化
+const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
+const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+
+// 日付フォーマット
+function getDate() {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return { 
+    yyyymmdd: `${year}${month}${day}`, 
+    display: `${year}-${month}-${day}` 
+  };
+}
+
+// 日本語翻訳（Gemini使用）
+async function translateToJapanese(text) {
+  try {
+    const prompt = `以下の英語のタイトルを自然な日本語に翻訳してください。翻訳結果のみを出力してください：\n\n${text}`;
+    const result = await model.generateContent(prompt);
+    return result.response.text().trim();
+  } catch (error) {
+    console.error('Translation error:', error.message);
+    return text; // 翻訳失敗時は元のテキストを返す
+  }
+}
+
+// 興味度を分析（Gemini使用）
+async function analyzeInterest(title, description = '') {
+  const keywords = {
+    high: ['AI', 'セキュリティ', '脆弱性', 'TypeScript', 'React', 'Next.js', 'OSS', '個人開発'],
+    medium: ['JavaScript', 'Web', 'エンジニア', 'プログラミング'],
+  };
+  
+  const text = (title + ' ' + description).toLowerCase();
+  
+  // キーワードマッチング
+  for (const keyword of keywords.high) {
+    if (text.includes(keyword.toLowerCase())) {
+      return '★★★';
+    }
+  }
+  
+  for (const keyword of keywords.medium) {
+    if (text.includes(keyword.toLowerCase())) {
+      return '★★';
+    }
+  }
+  
+  return '★';
+}
+
+// はてなブックマークIT
+async function collectHatebu() {
+  console.log('📚 はてなブックマークを収集中...');
+  
+  const categories = [
+    { url: 'https://b.hatena.ne.jp/hotentry/it', name: 'IT総合' },
+    { url: 'https://b.hatena.ne.jp/hotentry/it/プログラミング', name: 'プログラミング' },
+    { url: 'https://b.hatena.ne.jp/hotentry/it/AI・機械学習', name: 'AI・機械学習' },
+  ];
+  
+  const allEntries = [];
+  
+  for (const category of categories) {
+    try {
+      const { data } = await axios.get(category.url, {
+        headers: { 'User-Agent': 'TrendBot/1.0' }
+      });
+      const $ = cheerio.load(data);
+      
+      $('.entrylist-contents').slice(0, 10).each((i, elem) => {
+        const title = $(elem).find('.entrylist-contents-title a').text().trim();
+        const link = $(elem).find('.entrylist-contents-title a').attr('href');
+        const users = $(elem).find('.entrylist-contents-users span').text().trim();
+        
+        if (title && link) {
+          allEntries.push({ 
+            title, 
+            link, 
+            users: users.replace(' users', ''),
+            category: category.name
+          });
+        }
+      });
+      
+      // レート制限回避
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+    } catch (error) {
+      console.error(`  ❌ ${category.name} エラー:`, error.message);
+    }
+  }
+  
+  console.log(`  ✅ ${allEntries.length}件 収集完了`);
+  return allEntries;
+}
+
+// Hacker News
+async function collectHackerNews() {
+  console.log('🔥 Hacker Newsを収集中...');
+  
+  try {
+    const { data: ids } = await axios.get('https://hacker-news.firebaseio.com/v0/topstories.json');
+    const entries = [];
+    
+    for (const id of ids.slice(0, 20)) {
+      try {
+        const { data: item } = await axios.get(`https://hacker-news.firebaseio.com/v0/item/${id}.json`);
+        
+        if (item && item.title) {
+          // 日本語翻訳
+          const translatedTitle = await translateToJapanese(item.title);
+          
+          entries.push({
+            title: translatedTitle,
+            originalTitle: item.title,
+            link: `https://news.ycombinator.com/item?id=${id}`,
+            points: item.score || 0
+          });
+        }
+        
+        // レート制限回避
+        await new Promise(resolve => setTimeout(resolve, 200));
+        
+      } catch (error) {
+        console.error(`  ⚠️ 記事 ${id} エラー:`, error.message);
+      }
+    }
+    
+    console.log(`  ✅ ${entries.length}件 収集完了`);
+    return entries;
+    
+  } catch (error) {
+    console.error('  ❌ Hacker Newsエラー:', error.message);
+    return [];
+  }
+}
+
+// Reddit
+async function collectReddit() {
+  console.log('🤖 Redditを収集中...');
+  
+  const subreddits = [
+    'programming',
+    'technology', 
+    'webdev',
+    'javascript',
+    'netsec',
+    'OpenAI'
+  ];
+  
+  const allEntries = [];
+  
+  for (const subreddit of subreddits) {
+    try {
+      const { data } = await axios.get(
+        `https://old.reddit.com/r/${subreddit}/hot.json?limit=5`,
+        {
+          headers: { 
+            'User-Agent': 'TrendBot/1.0 (trend analysis tool)' 
+          }
+        }
+      );
+      
+      for (const post of data.data.children) {
+        const item = post.data;
+        
+        // 日本語翻訳
+        const translatedTitle = await translateToJapanese(item.title);
+        
+        allEntries.push({
+          title: translatedTitle,
+          originalTitle: item.title,
+          link: `https://www.reddit.com${item.permalink}`,
+          ups: item.ups,
+          comments: item.num_comments,
+          subreddit: `r/${subreddit}`
+        });
+        
+        // レート制限回避
+        await new Promise(resolve => setTimeout(resolve, 300));
+      }
+      
+      // サブレッド間の待機
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+    } catch (error) {
+      console.error(`  ❌ r/${subreddit} エラー:`, error.message);
+    }
+  }
+  
+  console.log(`  ✅ ${allEntries.length}件 収集完了`);
+  return allEntries;
+}
+
+// Markdownファイル生成
+async function generateMarkdown() {
+  const { yyyymmdd, display } = getDate();
+  
+  console.log('\n🚀 トレンド収集開始...\n');
+  
+  // データ収集
+  const hatebu = await collectHatebu();
+  const hn = await collectHackerNews();
+  const reddit = await collectReddit();
+  
+  console.log('\n📝 Markdownファイル生成中...\n');
+  
+  // 興味度分析
+  for (const entry of hatebu) {
+    entry.interest = await analyzeInterest(entry.title);
+  }
+  
+  for (const entry of hn) {
+    entry.interest = await analyzeInterest(entry.title);
+  }
+  
+  for (const entry of reddit) {
+    entry.interest = await analyzeInterest(entry.title);
+  }
+  
+  // Markdown生成
+  let markdown = `---
+date: ${display}
+tags: [trend, daily, auto-generated]
+---
+
+# トレンドネタ: ${display}
+
+> 自動収集されたIT業界のトレンド情報
+
+## はてなブックマーク IT
+
+### 注目トピック
+
+`;
+
+  // はてブ注目トピック（興味度★★★のみ）
+  const hatebuHighInterest = hatebu.filter(e => e.interest === '★★★');
+  if (hatebuHighInterest.length > 0) {
+    markdown += '| タイトル | ブクマ数 | 興味度 | カテゴリ |\n';
+    markdown += '|---------|---------|--------|----------|\n';
+    hatebuHighInterest.slice(0, 5).forEach(entry => {
+      markdown += `| [${entry.title}](${entry.link}) | ${entry.users} | ${entry.interest} | ${entry.category} |\n`;
+    });
+  } else {
+    markdown += '*高関連度の記事なし*\n';
+  }
+
+  markdown += '\n### 全エントリー\n\n';
+  hatebu.slice(0, 15).forEach((entry, i) => {
+    markdown += `${i + 1}. [${entry.title}](${entry.link}) (${entry.users} users) - ${entry.category}\n`;
+  });
+
+  markdown += '\n## Hacker News\n\n### 注目トピック\n\n';
+
+  // HN注目トピック
+  const hnHighInterest = hn.filter(e => e.interest === '★★★');
+  if (hnHighInterest.length > 0) {
+    markdown += '| タイトル | ポイント | 興味度 |\n';
+    markdown += '|---------|---------|--------|\n';
+    hnHighInterest.slice(0, 5).forEach(entry => {
+      markdown += `| [${entry.title}](${entry.link}) | ${entry.points}pt | ${entry.interest} |\n`;
+    });
+  } else {
+    markdown += '*高関連度の記事なし*\n';
+  }
+
+  markdown += '\n### 全エントリー\n\n';
+  hn.slice(0, 15).forEach((entry, i) => {
+    markdown += `${i + 1}. [${entry.title}](${entry.link}) (${entry.points}pt)\n`;
+  });
+
+  markdown += '\n## Reddit\n\n### 注目トピック\n\n';
+
+  // Reddit注目トピック
+  const redditHighInterest = reddit.filter(e => e.interest === '★★★');
+  if (redditHighInterest.length > 0) {
+    markdown += '| タイトル | 投票数 | コメント | 興味度 | サブレッド |\n';
+    markdown += '|---------|--------|---------|--------|------------|\n';
+    redditHighInterest.slice(0, 5).forEach(entry => {
+      markdown += `| [${entry.title}](${entry.link}) | ${entry.ups} | ${entry.comments} | ${entry.interest} | ${entry.subreddit} |\n`;
+    });
+  } else {
+    markdown += '*高関連度の記事なし*\n';
+  }
+
+  markdown += '\n### 全エントリー\n\n';
+  reddit.slice(0, 20).forEach((entry, i) => {
+    markdown += `${i + 1}. [${entry.title}](${entry.link}) (${entry.ups} ups, ${entry.comments} comments) - ${entry.subreddit}\n`;
+  });
+
+  markdown += `\n---\n\n*Generated by Trend Bot on ${new Date().toISOString()}*\n`;
+
+  // ファイル保存
+  const dailyDir = path.join(__dirname, '..', 'daily');
+  if (!fs.existsSync(dailyDir)) {
+    fs.mkdirSync(dailyDir, { recursive: true });
+  }
+  
+  const filename = `${yyyymmdd}-trend.md`;
+  const filepath = path.join(dailyDir, filename);
+  
+  fs.writeFileSync(filepath, markdown, 'utf8');
+  console.log(`✅ トレンド収集完了: ${filename}`);
+  console.log(`   📍 保存場所: ${filepath}`);
+  console.log(`\n📊 統計:`);
+  console.log(`   はてブ: ${hatebu.length}件`);
+  console.log(`   Hacker News: ${hn.length}件`);
+  console.log(`   Reddit: ${reddit.length}件`);
+  console.log(`   合計: ${hatebu.length + hn.length + reddit.length}件`);
+}
+
+// 実行
+generateMarkdown().catch(error => {
+  console.error('❌ エラー:', error);
+  process.exit(1);
+});
