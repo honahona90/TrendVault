@@ -8,6 +8,29 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
 const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
 
+// 記事要約関数
+async function summarizeArticle(url, title) {
+  try {
+    const prompt = `以下のIT記事について、3-4行で簡潔に要約してください。難しい専門用語があれば、簡単な言葉で言い換えて説明してください。
+
+タイトル: ${title}
+URL: ${url}
+
+要約（3-4行、簡潔に）:`;
+
+    const result = await model.generateContent(prompt);
+    const summary = result.response.text().trim();
+    
+    // 待機（レート制限対策: 10 RPM）
+    await new Promise(resolve => setTimeout(resolve, 6500)); // 6.5秒待機
+    
+    return summary;
+  } catch (error) {
+    console.error(`  ⚠️ 要約エラー (${title}):`, error.message);
+    return null;
+  }
+}
+
 // 日付フォーマット
 function getDate() {
   // 日本時間（JST = UTC+9）で日付を取得
@@ -231,7 +254,31 @@ async function generateMarkdown() {
   for (const entry of reddit) {
     entry.interest = await analyzeInterest(entry.title);
   }
-  
+ 
+// 注目トピック（★★★）の要約を生成
+console.log('\n📝 注目記事の要約を生成中...\n');
+
+for (const entry of hatebu) {
+  if (entry.interest === '★★★') {
+    console.log(`  要約生成中: ${entry.title.substring(0, 30)}...`);
+    entry.summary = await summarizeArticle(entry.link, entry.title);
+  }
+}
+
+for (const entry of hn) {
+  if (entry.interest === '★★★') {
+    console.log(`  要約生成中: ${entry.title.substring(0, 30)}...`);
+    entry.summary = await summarizeArticle(entry.link, entry.title);
+  }
+}
+
+for (const entry of reddit) {
+  if (entry.interest === '★★★') {
+    console.log(`  要約生成中: ${entry.title.substring(0, 30)}...`);
+    entry.summary = await summarizeArticle(entry.link, entry.title);
+  }
+}
+ 
   // Markdown生成
   let markdown = `---
 date: ${display}
@@ -244,59 +291,68 @@ tags: [trend, daily, auto-generated]
 
 ## はてなブックマーク IT
 
-### 注目トピック
+markdown += '### 注目トピック\n\n';
 
-`;
+// はてブ注目トピック（興味度★★★のみ）
+const hatebuHighInterest = hatebu.filter(e => e.interest === '★★★');
+if (hatebuHighInterest.length > 0) {
+  hatebuHighInterest.slice(0, 5).forEach((entry, i) => {
+    markdown += `#### ${i + 1}. [${entry.title}](${entry.link})\n\n`;
+    markdown += `**ブクマ数:** ${entry.users} | **興味度:** ${entry.interest} | **カテゴリ:** ${entry.category}\n\n`;
+    if (entry.summary) {
+      markdown += `**要約:**\n${entry.summary}\n\n`;
+    }
+    markdown += '---\n\n';
+  });
+} else {
+  markdown += '*高関連度の記事なし*\n\n';
+} 
 
-  // はてブ注目トピック（興味度★★★のみ）
-  const hatebuHighInterest = hatebu.filter(e => e.interest === '★★★');
-  if (hatebuHighInterest.length > 0) {
-    markdown += '| タイトル | ブクマ数 | 興味度 | カテゴリ |\n';
-    markdown += '|---------|---------|--------|----------|\n';
-    hatebuHighInterest.slice(0, 5).forEach(entry => {
-      markdown += `| [${entry.title}](${entry.link}) | ${entry.users} | ${entry.interest} | ${entry.category} |\n`;
-    });
-  } else {
-    markdown += '*高関連度の記事なし*\n';
-  }
 
   markdown += '\n### 全エントリー\n\n';
   hatebu.slice(0, 15).forEach((entry, i) => {
     markdown += `${i + 1}. [${entry.title}](${entry.link}) (${entry.users} users) - ${entry.category}\n`;
   });
 
-  markdown += '\n## Hacker News\n\n### 注目トピック\n\n';
+  
+markdown += '\n## Hacker News\n\n### 注目トピック\n\n';
 
-  // HN注目トピック
-  const hnHighInterest = hn.filter(e => e.interest === '★★★');
-  if (hnHighInterest.length > 0) {
-    markdown += '| タイトル | ポイント | 興味度 |\n';
-    markdown += '|---------|---------|--------|\n';
-    hnHighInterest.slice(0, 5).forEach(entry => {
-      markdown += `| [${entry.title}](${entry.link}) | ${entry.points}pt | ${entry.interest} |\n`;
-    });
-  } else {
-    markdown += '*高関連度の記事なし*\n';
-  }
+// HN注目トピック
+const hnHighInterest = hn.filter(e => e.interest === '★★★');
+if (hnHighInterest.length > 0) {
+  hnHighInterest.slice(0, 5).forEach((entry, i) => {
+    markdown += `#### ${i + 1}. [${entry.title}](${entry.link})\n\n`;
+    markdown += `**ポイント:** ${entry.points}pt | **興味度:** ${entry.interest}\n\n`;
+    if (entry.summary) {
+      markdown += `**要約:**\n${entry.summary}\n\n`;
+    }
+    markdown += '---\n\n';
+  });
+} else {
+  markdown += '*高関連度の記事なし*\n\n';
+}
 
   markdown += '\n### 全エントリー\n\n';
   hn.slice(0, 15).forEach((entry, i) => {
     markdown += `${i + 1}. [${entry.title}](${entry.link}) (${entry.points}pt)\n`;
   });
 
-  markdown += '\n## Reddit\n\n### 注目トピック\n\n';
+markdown += '\n## Reddit\n\n### 注目トピック\n\n';
 
-  // Reddit注目トピック
-  const redditHighInterest = reddit.filter(e => e.interest === '★★★');
-  if (redditHighInterest.length > 0) {
-    markdown += '| タイトル | 投票数 | コメント | 興味度 | サブレッド |\n';
-    markdown += '|---------|--------|---------|--------|------------|\n';
-    redditHighInterest.slice(0, 5).forEach(entry => {
-      markdown += `| [${entry.title}](${entry.link}) | ${entry.ups} | ${entry.comments} | ${entry.interest} | ${entry.subreddit} |\n`;
-    });
-  } else {
-    markdown += '*高関連度の記事なし*\n';
-  }
+// Reddit注目トピック
+const redditHighInterest = reddit.filter(e => e.interest === '★★★');
+if (redditHighInterest.length > 0) {
+  redditHighInterest.slice(0, 5).forEach((entry, i) => {
+    markdown += `#### ${i + 1}. [${entry.title}](${entry.link})\n\n`;
+    markdown += `**投票数:** ${entry.ups} | **コメント:** ${entry.comments} | **興味度:** ${entry.interest} | **サブレッド:** ${entry.subreddit}\n\n`;
+    if (entry.summary) {
+      markdown += `**要約:**\n${entry.summary}\n\n`;
+    }
+    markdown += '---\n\n';
+  });
+} else {
+  markdown += '*高関連度の記事なし*\n\n';
+}
 
   markdown += '\n### 全エントリー\n\n';
   reddit.slice(0, 20).forEach((entry, i) => {
