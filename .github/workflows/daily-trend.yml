@@ -26,7 +26,7 @@ jobs:
       
       - name: Collect trends
         env:
-          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: |
           node scripts/collect-trends.js
       
