@@ -21,8 +21,8 @@ URL: ${url}
     const result = await model.generateContent(prompt);
     const summary = result.response.text().trim();
 
-    // 待機（レート制限対策: 10 RPM）
-    await new Promise(resolve => setTimeout(resolve, 6500));
+    // 待機（レート制限対策: 5 RPM）
+    await new Promise(resolve => setTimeout(resolve, 13000));
 
     return summary;
   } catch (error) {
@@ -48,15 +48,21 @@ function getDate() {
   };
 }
 
-// 日本語翻訳（Gemini使用）
-async function translateToJapanese(text) {
+// バッチ翻訳（複数タイトルを1回のAPIコールで翻訳）
+async function translateBatch(titles) {
+  if (titles.length === 0) return [];
   try {
-    const prompt = `以下の英語のタイトルを自然な日本語に翻訳してください。翻訳結果のみを出力してください：\n\n${text}`;
+    const numbered = titles.map((t, i) => `${i + 1}. ${t}`).join('\n');
+    const prompt = `以下の英語タイトルをそれぞれ自然な日本語に翻訳してください。番号付きリスト形式で翻訳結果のみ出力してください：\n\n${numbered}`;
     const result = await model.generateContent(prompt);
-    return result.response.text().trim();
+    const text = result.response.text().trim();
+    const lines = text.split('\n')
+      .map(l => l.replace(/^\d+[\.\)]\s*/, '').trim())
+      .filter(l => l.length > 0);
+    return titles.map((t, i) => lines[i] || t);
   } catch (error) {
-    console.error('Translation error:', error.message);
-    return text; // 翻訳失敗時は元のテキストを返す
+    console.error('バッチ翻訳エラー:', error.message);
+    return titles;
   }
 }
 
@@ -143,19 +149,13 @@ async function collectHackerNews() {
         const { data: item } = await axios.get(`https://hacker-news.firebaseio.com/v0/item/${id}.json`);
 
         if (item && item.title) {
-          // 日本語翻訳
-          const translatedTitle = await translateToJapanese(item.title);
-
           entries.push({
-            title: translatedTitle,
+            title: item.title,
             originalTitle: item.title,
             link: `https://news.ycombinator.com/item?id=${id}`,
             points: item.score || 0
           });
         }
-
-        // レート制限回避
-        await new Promise(resolve => setTimeout(resolve, 200));
 
       } catch (error) {
         console.error(`  ⚠️ 記事 ${id} エラー:`, error.message);
@@ -200,20 +200,14 @@ async function collectReddit() {
       for (const post of data.data.children) {
         const item = post.data;
 
-        // 日本語翻訳
-        const translatedTitle = await translateToJapanese(item.title);
-
         allEntries.push({
-          title: translatedTitle,
+          title: item.title,
           originalTitle: item.title,
           link: `https://www.reddit.com${item.permalink}`,
           ups: item.ups,
           comments: item.num_comments,
           subreddit: `r/${subreddit}`
         });
-
-        // レート制限回避
-        await new Promise(resolve => setTimeout(resolve, 300));
       }
 
       // サブレッド間の待機
@@ -238,6 +232,18 @@ async function generateMarkdown() {
   const hatebu = await collectHatebu();
   const hn = await collectHackerNews();
   const reddit = await collectReddit();
+
+  console.log('\n🌐 タイトルを一括翻訳中...\n');
+
+  // HNタイトルを一括翻訳
+  const hnTranslated = await translateBatch(hn.map(e => e.title));
+  hn.forEach((e, i) => { e.title = hnTranslated[i]; });
+  await new Promise(resolve => setTimeout(resolve, 13000));
+
+  // Redditタイトルを一括翻訳
+  const redditTranslated = await translateBatch(reddit.map(e => e.title));
+  reddit.forEach((e, i) => { e.title = redditTranslated[i]; });
+  await new Promise(resolve => setTimeout(resolve, 13000));
 
   console.log('\n📝 Markdownファイル生成中...\n');
 
