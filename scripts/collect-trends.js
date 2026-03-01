@@ -2,11 +2,19 @@ const axios = require('axios');
 const cheerio = require('cheerio');
 const fs = require('fs');
 const path = require('path');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const Groq = require('groq-sdk');
 
-// Gemini API初期化
-const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
-const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-lite' });
+// Groq API初期化
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+
+async function callGroq(prompt) {
+  const response = await groq.chat.completions.create({
+    model: 'llama-3.3-70b-versatile',
+    messages: [{ role: 'user', content: prompt }],
+    temperature: 0.3,
+  });
+  return response.choices[0].message.content.trim();
+}
 
 // 記事要約関数
 async function summarizeArticle(url, title) {
@@ -18,12 +26,7 @@ URL: ${url}
 
 要約（3-4行、簡潔に）:`;
 
-    const result = await model.generateContent(prompt);
-    const summary = result.response.text().trim();
-
-    // 待機（レート制限対策: 5 RPM）
-    await new Promise(resolve => setTimeout(resolve, 13000));
-
+    const summary = await callGroq(prompt);
     return summary;
   } catch (error) {
     console.error(`  ⚠️ 要約エラー (${title}):`, error.message);
@@ -54,8 +57,7 @@ async function translateBatch(titles) {
   try {
     const numbered = titles.map((t, i) => `${i + 1}. ${t}`).join('\n');
     const prompt = `以下の英語タイトルをそれぞれ自然な日本語に翻訳してください。番号付きリスト形式で翻訳結果のみ出力してください：\n\n${numbered}`;
-    const result = await model.generateContent(prompt);
-    const text = result.response.text().trim();
+    const text = await callGroq(prompt);
     const lines = text.split('\n')
       .map(l => l.replace(/^\d+[\.\)]\s*/, '').trim())
       .filter(l => l.length > 0);
@@ -238,12 +240,10 @@ async function generateMarkdown() {
   // HNタイトルを一括翻訳
   const hnTranslated = await translateBatch(hn.map(e => e.title));
   hn.forEach((e, i) => { e.title = hnTranslated[i]; });
-  await new Promise(resolve => setTimeout(resolve, 13000));
 
   // Redditタイトルを一括翻訳
   const redditTranslated = await translateBatch(reddit.map(e => e.title));
   reddit.forEach((e, i) => { e.title = redditTranslated[i]; });
-  await new Promise(resolve => setTimeout(resolve, 13000));
 
   console.log('\n📝 Markdownファイル生成中...\n');
 
