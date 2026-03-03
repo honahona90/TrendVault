@@ -3,6 +3,7 @@ const cheerio = require('cheerio');
 const fs = require('fs');
 const path = require('path');
 const Groq = require('groq-sdk');
+const { execSync } = require('child_process');
 
 // Groq API初期化
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
@@ -173,7 +174,7 @@ async function collectHackerNews() {
   }
 }
 
-// Reddit
+// Reddit (curl + JSON API)
 async function collectReddit() {
   console.log('🤖 Redditを収集中...');
 
@@ -187,29 +188,29 @@ async function collectReddit() {
   ];
 
   const allEntries = [];
+  const userAgent = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
   for (const subreddit of subreddits) {
     try {
-      const { data } = await axios.get(
-        `https://old.reddit.com/r/${subreddit}/hot.json?limit=5`,
-        {
-          headers: {
-            'User-Agent': 'TrendBot/1.0 (trend analysis tool)'
-          }
+      const url = `https://old.reddit.com/r/${subreddit}/hot.json?t=day&limit=10`;
+      
+      const command = `curl -s -H "User-Agent: ${userAgent}" "${url}"`;
+      const response = execSync(command, { encoding: 'utf8', timeout: 10000 });
+      const data = JSON.parse(response);
+
+      if (data.data && data.data.children) {
+        for (const post of data.data.children) {
+          const item = post.data;
+          allEntries.push({
+            title: item.title,
+            originalTitle: item.title,
+            link: `https://www.reddit.com${item.permalink}`,
+            ups: item.ups,
+            comments: item.num_comments,
+            subreddit: `r/${subreddit}`
+          });
         }
-      );
-
-      for (const post of data.data.children) {
-        const item = post.data;
-
-        allEntries.push({
-          title: item.title,
-          originalTitle: item.title,
-          link: `https://www.reddit.com${item.permalink}`,
-          ups: item.ups,
-          comments: item.num_comments,
-          subreddit: `r/${subreddit}`
-        });
+        console.log(`  ✅ r/${subreddit}: ${data.data.children.length}件`);
       }
 
       // サブレッド間の待機
@@ -220,7 +221,7 @@ async function collectReddit() {
     }
   }
 
-  console.log(`  ✅ ${allEntries.length}件 収集完了`);
+  console.log(`  ✅ 合計 ${allEntries.length}件 収集完了`);
   return allEntries;
 }
 
