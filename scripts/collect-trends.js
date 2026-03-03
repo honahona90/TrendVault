@@ -330,7 +330,7 @@ tags: [trend, daily, auto-generated]
     markdown += `${i + 1}. [${entry.title}](${entry.link}) (${entry.points}pt)\n`;
   });
 
-  markdown += '\n## Reddit\n\n### 注目トピック\n\n';
+  markdown += '\n## Dev.to\n\n### 注目トピック\n\n';
 
   // Reddit注目トピック
   const redditHighInterest = reddit.filter(e => e.interest === '★★★');
@@ -369,7 +369,7 @@ tags: [trend, daily, auto-generated]
   console.log(`\n📊 統計:`);
   console.log(`   はてブ: ${hatebu.length}件`);
   console.log(`   Hacker News: ${hn.length}件`);
-  console.log(`   Reddit: ${reddit.length}件`);
+  console.log(`   Dev.to: ${reddit.length}件`);
   console.log(`   合計: ${hatebu.length + hn.length + reddit.length}件`);
 }
 
