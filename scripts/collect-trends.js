@@ -188,16 +188,23 @@ async function collectReddit() {
   ];
 
   const allEntries = [];
-  const userAgent = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+  const userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+  const acceptLanguage = 'en-US,en;q=0.9,ja;q=0.8';
 
   async function fetchSubreddit(subreddit, retryCount = 0) {
     const maxRetries = 3;
     const url = `https://old.reddit.com/r/${subreddit}/hot.json?t=day&limit=10`;
     
     try {
-      const command = `curl -s -H "User-Agent: ${userAgent}" "${url}"`;
+      const command = `curl -s -H "User-Agent: ${userAgent}" -H "Accept: application/json" -H "Accept-Language: ${acceptLanguage}" -H "Cache-Control: no-cache" -H "Pragma: no-cache" "${url}"`;
       const response = execSync(command, { encoding: 'utf8', timeout: 15000 });
       
+      // HTMLが返ってきた場合（ブロックされている）
+      if (response && response.trim().startsWith('<!doctype')) {
+        console.log(`  ⚠️ r/${subreddit} ブロック検出、Redditをスキップします...`);
+        return 'blocked';
+      }
+
       // 空応答の場合リトライ
       if (!response || response.trim() === '') {
         if (retryCount < maxRetries) {
@@ -249,13 +256,20 @@ async function collectReddit() {
         });
       }
       console.log(`  ✅ r/${subreddit}: ${data.data.children.length}件`);
+    } else if (data === 'blocked') {
+      console.log(`  ⚠️ r/${subreddit} ブロックされたためスキップ`);
+      break; // 1つでもブロックされたら残りもブロックされているので終了
     }
 
     // サブレッド間の待機
     await new Promise(resolve => setTimeout(resolve, 1500));
   }
 
-  console.log(`  ✅ 合計 ${allEntries.length}件 収集完了`);
+  if (allEntries.length === 0 && subreddits.length > 0) {
+    console.log(`  ⚠️ Redditがブロックされているためスキップします（GitHub Actions IPがRedditに拒否られました）`);
+  } else {
+    console.log(`  ✅ 合計 ${allEntries.length}件 収集完了`);
+  }
   return allEntries;
 }
 
