@@ -174,102 +174,41 @@ async function collectHackerNews() {
   }
 }
 
-// Reddit (curl + JSON API) with retry
+// Dev.to (開発者コミュニティ)
 async function collectReddit() {
-  console.log('🤖 Redditを収集中...');
+  console.log('🤖 Dev.toを収集中...');
 
-  const subreddits = [
-    'programming',
-    'technology',
-    'webdev',
-    'javascript',
-    'netsec',
-    'OpenAI'
-  ];
-
+  const tags = ['programming', 'javascript', 'webdev', 'security', 'ai', 'opensource'];
   const allEntries = [];
-  const userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
-  const acceptLanguage = 'en-US,en;q=0.9,ja;q=0.8';
 
-  async function fetchSubreddit(subreddit, retryCount = 0) {
-    const maxRetries = 3;
-    const url = `https://old.reddit.com/r/${subreddit}/hot.json?t=day&limit=10`;
-    
+  for (const tag of tags) {
     try {
-      const command = `curl -s -H "User-Agent: ${userAgent}" -H "Accept: application/json" -H "Accept-Language: ${acceptLanguage}" -H "Cache-Control: no-cache" -H "Pragma: no-cache" "${url}"`;
-      const response = execSync(command, { encoding: 'utf8', timeout: 15000 });
-      
-      // HTMLが返ってきた場合（ブロックされている）
-      if (response && response.trim().startsWith('<!doctype')) {
-        console.log(`  ⚠️ r/${subreddit} ブロック検出、Redditをスキップします...`);
-        return 'blocked';
+      const { data } = await axios.get(
+        `https://dev.to/api/articles?tag=${tag}&per_page=10&top=1`,
+        { timeout: 10000 }
+      );
+
+      if (data && Array.isArray(data)) {
+        for (const article of data) {
+          allEntries.push({
+            title: article.title,
+            originalTitle: article.title,
+            link: article.url,
+            ups: article.public_reactions_count || 0,
+            comments: article.comments_count || 0,
+            subreddit: `dev.to/${tag}`
+          });
+        }
+        console.log(`  ✅ dev.to #${tag}: ${data.length}件`);
       }
 
-      // 空応答の場合リトライ
-      if (!response || response.trim() === '') {
-        if (retryCount < maxRetries) {
-          console.log(`  ⚠️ r/${subreddit} 空応答、リトライ(${retryCount + 1}/${maxRetries})...`);
-          await new Promise(resolve => setTimeout(resolve, 3000 * (retryCount + 1)));
-          return fetchSubreddit(subreddit, retryCount + 1);
-        }
-        return null;
-      }
-      
-      const data = JSON.parse(response);
-      
-      // エラーレスポンスの場合リトライ
-      if (data.error || data.message) {
-        if (retryCount < maxRetries) {
-          console.log(`  ⚠️ r/${subreddit} APIエラー、リトライ(${retryCount + 1}/${maxRetries})...`);
-          await new Promise(resolve => setTimeout(resolve, 3000 * (retryCount + 1)));
-          return fetchSubreddit(subreddit, retryCount + 1);
-        }
-        console.error(`  ❌ r/${subreddit} APIエラー: ${data.message || data.error}`);
-        return null;
-      }
-
-      return data;
+      await new Promise(resolve => setTimeout(resolve, 500));
     } catch (error) {
-      if (retryCount < maxRetries) {
-        console.log(`  ⚠️ r/${subreddit} エラー: ${error.message}、リトライ(${retryCount + 1}/${maxRetries})...`);
-        await new Promise(resolve => setTimeout(resolve, 3000 * (retryCount + 1)));
-        return fetchSubreddit(subreddit, retryCount + 1);
-      }
-      console.error(`  ❌ r/${subreddit} エラー: ${error.message}`);
-      return null;
+      console.error(`  ❌ dev.to #${tag} エラー: ${error.message}`);
     }
   }
 
-  for (const subreddit of subreddits) {
-    const data = await fetchSubreddit(subreddit);
-
-    if (data && data.data && data.data.children) {
-      for (const post of data.data.children) {
-        const item = post.data;
-        allEntries.push({
-          title: item.title,
-          originalTitle: item.title,
-          link: `https://www.reddit.com${item.permalink}`,
-          ups: item.ups,
-          comments: item.num_comments,
-          subreddit: `r/${subreddit}`
-        });
-      }
-      console.log(`  ✅ r/${subreddit}: ${data.data.children.length}件`);
-    } else if (data === 'blocked') {
-      console.log(`  ⚠️ r/${subreddit} ブロックされたためスキップ`);
-      break; // 1つでもブロックされたら残りもブロックされているので終了
-    }
-
-    // サブレッド間の待機
-    await new Promise(resolve => setTimeout(resolve, 1500));
-  }
-
-  if (allEntries.length === 0 && subreddits.length > 0) {
-    console.log(`  ⚠️ Redditがブロックされているためスキップします（GitHub Actions IPがRedditに拒否られました）`);
-  } else {
-    console.log(`  ✅ 合計 ${allEntries.length}件 収集完了`);
-  }
+  console.log(`  ✅ 合計 ${allEntries.length}件 収集完了`);
   return allEntries;
 }
 
