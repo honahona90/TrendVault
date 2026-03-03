@@ -174,7 +174,7 @@ async function collectHackerNews() {
   }
 }
 
-// Reddit (curl + JSON API)
+// Reddit (curl + JSON API) with retry
 async function collectReddit() {
   console.log('🤖 Redditを収集中...');
 
@@ -190,35 +190,69 @@ async function collectReddit() {
   const allEntries = [];
   const userAgent = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
-  for (const subreddit of subreddits) {
+  async function fetchSubreddit(subreddit, retryCount = 0) {
+    const maxRetries = 3;
+    const url = `https://old.reddit.com/r/${subreddit}/hot.json?t=day&limit=10`;
+    
     try {
-      const url = `https://old.reddit.com/r/${subreddit}/hot.json?t=day&limit=10`;
-      
       const command = `curl -s -H "User-Agent: ${userAgent}" "${url}"`;
-      const response = execSync(command, { encoding: 'utf8', timeout: 10000 });
-      const data = JSON.parse(response);
-
-      if (data.data && data.data.children) {
-        for (const post of data.data.children) {
-          const item = post.data;
-          allEntries.push({
-            title: item.title,
-            originalTitle: item.title,
-            link: `https://www.reddit.com${item.permalink}`,
-            ups: item.ups,
-            comments: item.num_comments,
-            subreddit: `r/${subreddit}`
-          });
+      const response = execSync(command, { encoding: 'utf8', timeout: 15000 });
+      
+      // 空応答の場合リトライ
+      if (!response || response.trim() === '') {
+        if (retryCount < maxRetries) {
+          console.log(`  ⚠️ r/${subreddit} 空応答、リトライ(${retryCount + 1}/${maxRetries})...`);
+          await new Promise(resolve => setTimeout(resolve, 3000 * (retryCount + 1)));
+          return fetchSubreddit(subreddit, retryCount + 1);
         }
-        console.log(`  ✅ r/${subreddit}: ${data.data.children.length}件`);
+        return null;
+      }
+      
+      const data = JSON.parse(response);
+      
+      // エラーレスポンスの場合リトライ
+      if (data.error || data.message) {
+        if (retryCount < maxRetries) {
+          console.log(`  ⚠️ r/${subreddit} APIエラー、リトライ(${retryCount + 1}/${maxRetries})...`);
+          await new Promise(resolve => setTimeout(resolve, 3000 * (retryCount + 1)));
+          return fetchSubreddit(subreddit, retryCount + 1);
+        }
+        console.error(`  ❌ r/${subreddit} APIエラー: ${data.message || data.error}`);
+        return null;
       }
 
-      // サブレッド間の待機
-      await new Promise(resolve => setTimeout(resolve, 2000));
-
+      return data;
     } catch (error) {
-      console.error(`  ❌ r/${subreddit} エラー:`, error.message);
+      if (retryCount < maxRetries) {
+        console.log(`  ⚠️ r/${subreddit} エラー: ${error.message}、リトライ(${retryCount + 1}/${maxRetries})...`);
+        await new Promise(resolve => setTimeout(resolve, 3000 * (retryCount + 1)));
+        return fetchSubreddit(subreddit, retryCount + 1);
+      }
+      console.error(`  ❌ r/${subreddit} エラー: ${error.message}`);
+      return null;
     }
+  }
+
+  for (const subreddit of subreddits) {
+    const data = await fetchSubreddit(subreddit);
+
+    if (data && data.data && data.data.children) {
+      for (const post of data.data.children) {
+        const item = post.data;
+        allEntries.push({
+          title: item.title,
+          originalTitle: item.title,
+          link: `https://www.reddit.com${item.permalink}`,
+          ups: item.ups,
+          comments: item.num_comments,
+          subreddit: `r/${subreddit}`
+        });
+      }
+      console.log(`  ✅ r/${subreddit}: ${data.data.children.length}件`);
+    }
+
+    // サブレッド間の待機
+    await new Promise(resolve => setTimeout(resolve, 1500));
   }
 
   console.log(`  ✅ 合計 ${allEntries.length}件 収集完了`);
