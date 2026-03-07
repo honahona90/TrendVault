@@ -25,7 +25,7 @@ async function summarizeArticle(url, title) {
 タイトル: ${title}
 URL: ${url}
 
-要約（3-4行、簡潔に）:`;
+要約（400〜500文字で簡潔に）:`;
 
     const summary = await callGroq(prompt);
     return summary;
