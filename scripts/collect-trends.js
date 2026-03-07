@@ -8,11 +8,12 @@ const { execSync } = require('child_process');
 // Groq API初期化
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
-async function callGroq(prompt) {
+async function callGroq(prompt, maxTokens = 1024) {
   const response = await groq.chat.completions.create({
     model: 'llama-3.3-70b-versatile',
     messages: [{ role: 'user', content: prompt }],
     temperature: 0.3,
+    max_tokens: maxTokens,
   });
   return response.choices[0].message.content.trim();
 }
@@ -27,7 +28,7 @@ URL: ${url}
 
 要約（300〜350文字で簡潔に）:`;
 
-    const summary = await callGroq(prompt);
+    const summary = await callGroq(prompt, 500);
     return summary;
   } catch (error) {
     console.error(`  ⚠️ 要約エラー (${title}):`, error.message);
