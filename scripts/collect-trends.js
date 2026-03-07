@@ -20,12 +20,12 @@ async function callGroq(prompt) {
 // 記事要約関数
 async function summarizeArticle(url, title) {
   try {
-    const prompt = `以下のIT記事について、500字程度（400〜500文字）で簡潔に要約してください。難しい専門用語があれば、簡単な言葉で言い換えて説明してください。
+    const prompt = `以下のIT記事について、350字程度（300〜350文字）で簡潔に要約してください。難しい専門用語があれば、簡単な言葉で言い換えて説明してください。
 
 タイトル: ${title}
 URL: ${url}
 
-要約（400〜500文字で簡潔に）:`;
+要約（300〜350文字で簡潔に）:`;
 
     const summary = await callGroq(prompt);
     return summary;
