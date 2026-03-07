@@ -8,11 +8,12 @@ const { execSync } = require('child_process');
 // Groq API初期化
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
-async function callGroq(prompt) {
+async function callGroq(prompt, maxTokens = 1024) {
   const response = await groq.chat.completions.create({
     model: 'llama-3.3-70b-versatile',
     messages: [{ role: 'user', content: prompt }],
     temperature: 0.3,
+    max_tokens: maxTokens,
   });
   return response.choices[0].message.content.trim();
 }
@@ -20,14 +21,14 @@ async function callGroq(prompt) {
 // 記事要約関数
 async function summarizeArticle(url, title) {
   try {
-    const prompt = `以下のIT記事について、3-4行で簡潔に要約してください。難しい専門用語があれば、簡単な言葉で言い換えて説明してください。
+    const prompt = `以下のIT記事について、350字程度（300〜350文字）で簡潔に要約してください。難しい専門用語があれば、簡単な言葉で言い換えて説明してください。
 
 タイトル: ${title}
 URL: ${url}
 
-要約（3-4行、簡潔に）:`;
+要約（300〜350文字で簡潔に）:`;
 
-    const summary = await callGroq(prompt);
+    const summary = await callGroq(prompt, 500);
     return summary;
   } catch (error) {
     console.error(`  ⚠️ 要約エラー (${title}):`, error.message);
@@ -72,7 +73,7 @@ async function translateBatch(titles) {
 // 興味度を分析（キーワードマッチング）
 async function analyzeInterest(title, description = '') {
   const keywords = {
-    high: ['AI', 'セキュリティ', '脆弱性', 'TypeScript', 'React', 'Next.js', 'OSS', '個人開発'],
+    high: ['AI', 'セキュリティ', '脆弱性', 'TypeScript', 'React', 'Next.js', 'OSS', '個人開発', 'Anthropic', 'GPT', 'LLM', 'Claude'],
     medium: ['JavaScript', 'Web', 'エンジニア', 'プログラミング'],
   };
 
