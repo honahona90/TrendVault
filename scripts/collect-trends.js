@@ -72,7 +72,7 @@ async function translateBatch(titles) {
 // 興味度を分析（キーワードマッチング）
 async function analyzeInterest(title, description = '') {
   const keywords = {
-    high: ['AI', 'セキュリティ', '脆弱性', 'TypeScript', 'React', 'Next.js', 'OSS', '個人開発', 'Anthropic', 'GPT', 'LLM'],
+    high: ['AI', 'セキュリティ', '脆弱性', 'TypeScript', 'React', 'Next.js', 'OSS', '個人開発', 'Anthropic', 'GPT', 'LLM', 'Claude'],
     medium: ['JavaScript', 'Web', 'エンジニア', 'プログラミング'],
   };
 
